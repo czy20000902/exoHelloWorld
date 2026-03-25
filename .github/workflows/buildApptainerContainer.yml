@@ -1,0 +1,60 @@
+name: Build and Push Apptainer Container
+
+# 1. Triggers: Run on push to main branch, or manually via workflow_dispatch
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Grant permissions needed to push packages to GitHub Container Registry (GHCR)
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      # 2. Checkout: Pull the code into the GitHub runner
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetches all history and tags so git versioning works
+
+      # 3. Environment Setup: Install Apptainer on the GitHub runner
+      - name: Setup Apptainer
+        uses: eWaterCycle/setup-apptainer@v2
+        with:
+          apptainer-version: 1.3.0
+
+      # Create a version string based on git commits/tags
+      - name: Extract Git Version
+        id: version
+        run: |
+          VERSION=$(git describe --tags --always)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      # 4. Build: Run the build command with sudo, then give ownership back
+      - name: Build Container
+        run: |
+          sudo apptainer build \
+            --build-arg VERSION=${{ steps.version.outputs.version }} \
+            env.sif containers/env.def
+          
+          # Fix permissions so the normal user can push it to the registry
+          sudo chown $USER env.sif
+
+      # 5. Authenticate: Log into GHCR using the automatic GitHub token
+      - name: Login to GitHub Container Registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | apptainer registry login -u ${{ github.actor }} --password-stdin oras://ghcr.io
+
+      # 6. Push to the registry: Upload the .sif file to the cloud
+      - name: Push Container to GHCR
+        run: |
+          # GHCR requires repository names to be strictly lowercase
+          REPO_LC=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          
+          # Push as the 'latest' tag
+          apptainer push env.sif oras://ghcr.io/${REPO_LC}/env-sif:latest
