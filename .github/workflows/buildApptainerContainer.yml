@@ -39,7 +39,7 @@ jobs:
       - name: Build Container
         run: |
           sudo apptainer build \
-            --build-arg VERSION=${{ steps.version.outputs.version }} \
+            --build-arg VERSION=0.1.0 \
             env.sif containers/env.def
           
           # Fix permissions so the normal user can push it to the registry
